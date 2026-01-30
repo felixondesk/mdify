@@ -1,0 +1,34 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+
+# Production
+dist
+*.zip
+
+# Misc
+.DS_Store
+.env
+.npmrc
+*.log
+*.log.*
+tmp/
+
+# IDEs
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Agent
+.antigravity
+debug_log.txt
+*.ps1
+*.bat

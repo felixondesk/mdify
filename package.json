@@ -1,0 +1,31 @@
+{
+  "name": "mdify",
+  "version": "1.0.0",
+  "description": "Convert webpages to Markdown and inject into AI interfaces",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "gpt-tokenizer": "^2.1.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "turndown": "^7.2.0"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.3.0",
+    "@types/chrome": "^0.0.287",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/turndown": "^5.0.5",
+    "@vitejs/plugin-react": "^5.1.2",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.1"
+  }
+}

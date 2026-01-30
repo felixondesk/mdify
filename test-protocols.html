@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Protocol Handler Test</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 2rem;
+            max-width: 600px;
+            margin: 0 auto;
+            line-height: 1.5;
+        }
+
+        .card {
+            border: 1px solid #ccc;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+
+        a {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            border: 1px solid #28a745;
+            cursor: pointer;
+        }
+
+        a:hover {
+            background: #218838;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        .note {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        #debug {
+            background: #1e1e1e;
+            color: #0f0;
+            padding: 1rem;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+        }
+
+        #debug:empty::before {
+            content: 'Debug log will appear here...';
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Protocol Handler Test</h1>
+    <p>This page tests if your browser and OS allow opening applications via "Deep Links" (URL Schemes).</p>
+
+    <div id="debug"></div>
+
+    <div class="card">
+        <h2>Test 1: VS Code</h2>
+        <p>Click the button below. If VS Code is installed, it should prompt to open.</p>
+        <a href="vscode://" id="link-vscode">Open VS Code (vscode://)</a>
+        <p class="note">Requires Visual Studio Code to be installed.</p>
+    </div>
+
+    <div class="card">
+        <h2>Test 2: Antigravity</h2>
+        <p>Click the button below. If an app registered for 'antigravity://' is installed, it should prompt to open.</p>
+        <a href="antigravity://open" id="link-antigravity">Open Antigravity (antigravity://open)</a>
+        <p class="note">Requires the Antigravity app with protocol handler registration.</p>
+    </div>
+
+    <script>
+        const debugEl = document.getElementById('debug');
+        function log(msg) {
+            const time = new Date().toLocaleTimeString();
+            debugEl.innerHTML += `[${time}] ${msg}<br>`;
+            debugEl.scrollTop = debugEl.scrollHeight;
+            console.log(`[DEBUG] ${msg}`);
+        }
+
+        log('Page loaded. Click a protocol link to test.');
+
+        // Track VS Code link
+        document.getElementById('link-vscode').addEventListener('click', function (e) {
+            log('VS Code link clicked');
+            log('href = ' + this.href);
+            log('Attempting to open protocol...');
+            // Let the default action happen
+        });
+
+        // Track Antigravity link
+        document.getElementById('link-antigravity').addEventListener('click', function (e) {
+            log('Antigravity link clicked');
+            log('href = ' + this.href);
+            log('Attempting to open protocol...');
+            // Let the default action happen
+        });
+
+        // Also try programmatic approach
+        window.testProtocol = function (scheme) {
+            log('Testing programmatic navigation to: ' + scheme);
+            const a = document.createElement('a');
+            a.href = scheme;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            log('Anchor clicked');
+        };
+
+        log('You can also run in console: testProtocol("vscode://")');
+    </script>
+
+</body>
+
+</html>
