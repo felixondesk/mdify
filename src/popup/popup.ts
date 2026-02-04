@@ -47,6 +47,18 @@ async function init(): Promise<void> {
       return;
     }
 
+    // Check for restricted pages where content scripts cannot run
+    if (tab.url && (
+      tab.url.startsWith('chrome://') ||
+      tab.url.startsWith('edge://') ||
+      tab.url.includes('chromewebstore.google.com') ||
+      tab.url.includes('chrome.google.com/webstore')
+    )) {
+      showError('Cannot scrape Chrome Web Store or browser internal pages due to security restrictions.');
+      transitionToContent();
+      return;
+    }
+
     // Send scrape request to content script
     chrome.tabs.sendMessage(
       tab.id,
