@@ -161,8 +161,70 @@ function injectFloatingButton() {
   const fab = document.getElementById('mdify-fab')!;
   const menu = document.getElementById('mdify-menu')!;
 
+  // Drag functionality
+  let isDragging = false;
+  let hasMoved = false;
+  let startX: number, startY: number;
+  let initialLeft: number, initialTop: number;
+
+  fab.addEventListener('mousedown', (e) => {
+    // Only left click
+    if (e.button !== 0) return;
+
+    isDragging = true;
+    hasMoved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+
+    const rect = root.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+
+    // Set absolute position based on current visual position
+    root.style.bottom = 'auto';
+    root.style.right = 'auto';
+    root.style.left = `${initialLeft}px`;
+    root.style.top = `${initialTop}px`;
+
+    fab.style.cursor = 'grabbing';
+
+    // Prevent selection
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    // Threshold to consider it a drag
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      hasMoved = true;
+    }
+
+    if (hasMoved) {
+      root.style.left = `${initialLeft + dx}px`;
+      root.style.top = `${initialTop + dy}px`;
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      fab.style.cursor = 'pointer';
+    }
+  });
+
   fab.addEventListener('click', (e) => {
     e.stopPropagation();
+
+    // If it was a drag, don't toggle menu
+    if (hasMoved) {
+      hasMoved = false;
+      return;
+    }
+
     menu.classList.toggle('active');
   });
 
@@ -256,10 +318,11 @@ function injectStyles() {
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       padding: 0;
       position: relative;
       overflow: hidden;
+      user-select: none;
     }
     .mdify-fab::after {
       content: '';
@@ -269,10 +332,13 @@ function injectStyles() {
       opacity: 0.5;
     }
     .mdify-fab:hover {
-      transform: translateY(-5px) scale(1.05);
+      transform: translateY(-2px) scale(1.05);
       box-shadow: 0 12px 40px rgba(99, 102, 241, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
     }
-    .mdify-logo-icon { width: 28px; height: 28px; color: white; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); z-index: 1; }
+    .mdify-fab:active {
+      transform: scale(0.95);
+    }
+    .mdify-logo-icon { width: 28px; height: 28px; color: white; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); z-index: 1; pointer-events: none; }
     .mdify-menu {
       position: absolute;
       bottom: 76px;
@@ -289,6 +355,7 @@ function injectStyles() {
       pointer-events: none;
       transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+      transform-origin: bottom right;
     }
     .mdify-menu.active { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
     .mdify-menu-item {
