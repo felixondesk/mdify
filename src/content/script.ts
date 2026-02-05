@@ -106,6 +106,26 @@ function injectFloatingButton() {
     return;
   }
 
+  // Sites to exclude (Video, Social, Productivity)
+  const excludedDomains = [
+    // Video & Streaming (Full screen issues)
+    'youtube.com', 'youtu.be', 'netflix.com', 'twitch.tv', 'vimeo.com',
+    'dailymotion.com', 'disneyplus.com', 'hulu.com', 'primevideo.com', 'max.com',
+    // Social Media
+    'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'linkedin.com',
+    // Communication
+    'whatsapp.com', 'messenger.com', 'discord.com', 'slack.com',
+    'teams.microsoft.com', 'zoom.us', 'meet.google.com',
+    // Productivity & Design
+    'docs.google.com', 'sheets.google.com', 'slides.google.com',
+    'canva.com', 'figma.com', 'trello.com', 'miro.com'
+  ];
+
+  if (excludedDomains.some(domain => currentHost.includes(domain))) {
+    console.log('MDify: Overlay disabled on this domain');
+    return;
+  }
+
   // Check if already injected
   if (document.getElementById('mdify-floating-root')) return;
 
