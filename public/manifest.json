@@ -5,8 +5,13 @@
   "description": "Convert webpages to Markdown and inject into AI platforms",
   "permissions": [
     "activeTab",
-    "clipboardWrite"
+    "clipboardWrite",
+    "storage"
   ],
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": true
+  },
   "host_permissions": [
     "https://claude.ai/*",
     "https://chatgpt.com/*",

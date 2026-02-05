@@ -28,7 +28,7 @@ turndownService.addRule('table', {
  * Scrapes the current page and converts it to clean Markdown
  * @returns The scraped Markdown content or null if failed
  */
-export function scrapePageToMarkdown(): string | null {
+export function scrapePageToMarkdown(): { success: boolean; markdown?: string; error?: string } {
   try {
     // Clone the document to work with a clean copy
     const documentClone = document.cloneNode(true) as Document;
@@ -42,11 +42,16 @@ export function scrapePageToMarkdown(): string | null {
 
     if (!article || !article.content) {
       console.warn('MDify: No article content found');
-      return null;
+      return { success: false, error: 'No readable content found on this page.' };
     }
 
     // Convert the cleaned HTML to Markdown
     const markdown = turndownService.turndown(article.content);
+
+    // Basic check for empty markdown
+    if (!markdown || markdown.trim().length === 0) {
+      return { success: false, error: 'Content conversion resulted in empty output.' };
+    }
 
     // Add metadata at the top
     const metadata = `---
@@ -59,10 +64,10 @@ excerpt: ${article.excerpt || ''}
 
 `;
 
-    return metadata + markdown;
+    return { success: true, markdown: metadata + markdown };
   } catch (error) {
     console.error('MDify: Error scraping page:', error);
-    return null;
+    return { success: false, error: 'Failed to process page content: ' + (error as Error).message };
   }
 }
 
@@ -83,9 +88,10 @@ export function getPageUrl(): string {
 // Listen for messages from popup or background
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'scrapePage') {
-    const markdown = scrapePageToMarkdown();
+    const result = scrapePageToMarkdown();
     sendResponse({
-      markdown,
+      markdown: result.markdown,
+      error: result.error,
       title: getPageTitle(),
       url: getPageUrl(),
     });
@@ -107,7 +113,8 @@ function injectFloatingButton() {
   }
 
   // Sites to exclude (Video, Social, Productivity)
-  const excludedDomains = [
+  // Default list if storage is empty
+  const DEFAULT_EXCLUDED_DOMAINS = [
     // Video & Streaming (Full screen issues)
     'youtube.com', 'youtu.be', 'netflix.com', 'twitch.tv', 'vimeo.com',
     'dailymotion.com', 'disneyplus.com', 'hulu.com', 'primevideo.com', 'max.com',
@@ -121,19 +128,48 @@ function injectFloatingButton() {
     'canva.com', 'figma.com', 'trello.com', 'miro.com'
   ];
 
-  if (excludedDomains.some(domain => currentHost.includes(domain))) {
-    console.log('MDify: Overlay disabled on this domain');
-    return;
-  }
+  // Retrieve excluded domains from storage
+  chrome.storage.sync.get(['excludedDomains'], (result) => {
+    const excludedDomains = result.excludedDomains || DEFAULT_EXCLUDED_DOMAINS;
 
-  // Check if already injected
-  if (document.getElementById('mdify-floating-root')) return;
+    if (excludedDomains.some((domain: string) => currentHost.includes(domain))) {
+      console.log('MDify: Overlay disabled on this domain (Configured)');
+      return;
+    }
 
-  const root = document.createElement('div');
-  root.id = 'mdify-floating-root';
-  root.className = 'mdify-animate-in';
+    // Proceed with injection if not excluded
+    createOverlay();
+  });
 
-  root.innerHTML = `
+  function createOverlay() {
+    // Check if already injected
+    if (document.getElementById('mdify-floating-root')) return;
+
+    const root = document.createElement('div');
+    root.id = 'mdify-floating-root';
+    root.className = 'mdify-animate-in';
+
+    // Restore position and state
+    const storageKeyPos = `mdify_pos_${window.location.hostname}`;
+    const storageKeyMin = `mdify_min_${window.location.hostname}`;
+
+    chrome.storage.local.get([storageKeyPos, storageKeyMin], (res) => {
+      const pos = res[storageKeyPos];
+      const isMin = res[storageKeyMin];
+
+      if (pos) {
+        root.style.left = pos.left;
+        root.style.top = pos.top;
+        root.style.bottom = 'auto';
+        root.style.right = 'auto';
+      }
+
+      if (isMin) {
+        root.classList.add('minimized');
+      }
+    });
+
+    root.innerHTML = `
     <div class="mdify-menu" id="mdify-menu">
       <div class="mdify-menu-header">AI Platforms</div>
       <div class="mdify-menu-item" data-platform="claude">
@@ -166,6 +202,11 @@ function injectFloatingButton() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
         Download .md
       </div>
+      <div class="mdify-divider"></div>
+      <div class="mdify-menu-item" data-action="minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Minimize Overlay
+      </div>
     </div>
     <button class="mdify-fab" id="mdify-fab" title="Open with MDify">
       <svg class="mdify-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -176,145 +217,175 @@ function injectFloatingButton() {
     </button>
   `;
 
-  document.body.appendChild(root);
+    document.body.appendChild(root);
 
-  const fab = document.getElementById('mdify-fab')!;
-  const menu = document.getElementById('mdify-menu')!;
+    const fab = document.getElementById('mdify-fab')!;
+    const menu = document.getElementById('mdify-menu')!;
 
-  // Drag functionality
-  let isDragging = false;
-  let hasMoved = false;
-  let startX: number, startY: number;
-  let initialLeft: number, initialTop: number;
+    // Drag functionality
+    let isDragging = false;
+    let hasMoved = false;
+    let startX: number, startY: number;
+    let initialLeft: number, initialTop: number;
 
-  fab.addEventListener('mousedown', (e) => {
-    // Only left click
-    if (e.button !== 0) return;
+    fab.addEventListener('mousedown', (e) => {
+      // Only left click
+      if (e.button !== 0) return;
 
-    isDragging = true;
-    hasMoved = false;
-    startX = e.clientX;
-    startY = e.clientY;
-
-    const rect = root.getBoundingClientRect();
-    initialLeft = rect.left;
-    initialTop = rect.top;
-
-    // Set absolute position based on current visual position
-    root.style.bottom = 'auto';
-    root.style.right = 'auto';
-    root.style.left = `${initialLeft}px`;
-    root.style.top = `${initialTop}px`;
-
-    fab.style.cursor = 'grabbing';
-
-    // Prevent selection
-    e.preventDefault();
-  });
-
-  window.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-
-    // Threshold to consider it a drag
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-      hasMoved = true;
-    }
-
-    if (hasMoved) {
-      root.style.left = `${initialLeft + dx}px`;
-      root.style.top = `${initialTop + dy}px`;
-    }
-  });
-
-  window.addEventListener('mouseup', () => {
-    if (isDragging) {
-      isDragging = false;
-      fab.style.cursor = 'pointer';
-    }
-  });
-
-  fab.addEventListener('click', (e) => {
-    e.stopPropagation();
-
-    // If it was a drag, don't toggle menu
-    if (hasMoved) {
+      isDragging = true;
       hasMoved = false;
-      return;
-    }
+      startX = e.clientX;
+      startY = e.clientY;
 
-    menu.classList.toggle('active');
-  });
+      const rect = root.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
 
-  document.addEventListener('click', () => {
-    menu.classList.remove('active');
-  });
+      // Set absolute position based on current visual position
+      root.style.bottom = 'auto';
+      root.style.right = 'auto';
+      root.style.left = `${initialLeft}px`;
+      root.style.top = `${initialTop}px`;
 
-  menu.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const item = (e.target as HTMLElement).closest('.mdify-menu-item');
-    if (!item) return;
+      fab.style.cursor = 'grabbing';
 
-    const platform = item.getAttribute('data-platform');
-    const action = item.getAttribute('data-action');
+      // Prevent selection
+      e.preventDefault();
+    });
 
-    menu.classList.remove('active');
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
 
-    // Add loading state to FAB
-    const originalFabContent = fab.innerHTML;
-    fab.innerHTML = '<span class="mdify-spinner"></span>';
-    fab.style.pointerEvents = 'none';
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
 
-    try {
-      const markdown = scrapePageToMarkdown();
-      if (!markdown) throw new Error('Failed to scrape page');
-
-      // ALWAYS Copy to clipboard
-      await navigator.clipboard.writeText(markdown);
-
-      if (platform) {
-        await chrome.runtime.sendMessage({
-          action: 'injectToPlatform',
-          platform,
-          markdown,
-        });
-        fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-      } else if (action === 'copy') {
-        fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-      } else if (action === 'download') {
-        // Sanitize filename from page title
-        const pageTitle = document.title || 'document';
-        const filename = pageTitle
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '');
-
-        // Create blob and download link
-        const blob = new Blob([markdown], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${filename}.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+      // Threshold to consider it a drag
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        hasMoved = true;
       }
-    } catch (err) {
-      console.error('MDify Error:', err);
-      fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
-    } finally {
-      setTimeout(() => {
-        fab.innerHTML = originalFabContent;
-        fab.style.pointerEvents = 'auto';
-      }, 2000);
-    }
-  });
-}
+
+      if (hasMoved) {
+        root.style.left = `${initialLeft + dx}px`;
+        root.style.top = `${initialTop + dy}px`;
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        fab.style.cursor = 'pointer';
+      }
+    });
+
+    fab.addEventListener('click', (e) => {
+      e.stopPropagation();
+
+      // If it was a drag, don't toggle menu
+      if (hasMoved) {
+        hasMoved = false;
+        return;
+      }
+
+      menu.classList.toggle('active');
+    });
+
+    // Restore from minimize
+    root.addEventListener('click', (e) => {
+      // If clicking the root while minimized (target might be root or fab)
+      if (root.classList.contains('minimized')) {
+        e.stopPropagation();
+        root.classList.remove('minimized');
+        chrome.storage.local.set({ [`mdify_min_${window.location.hostname}`]: false });
+      }
+    });
+
+
+    document.addEventListener('click', () => {
+      menu.classList.remove('active');
+    });
+
+    menu.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const item = (e.target as HTMLElement).closest('.mdify-menu-item');
+      if (!item) return;
+
+      const platform = item.getAttribute('data-platform');
+      const action = item.getAttribute('data-action');
+
+      menu.classList.remove('active');
+
+      if (action === 'minimize') {
+        root.classList.add('minimized');
+        chrome.storage.local.set({ [`mdify_min_${window.location.hostname}`]: true });
+        return;
+      }
+
+      // Add loading state to FAB
+      const originalFabContent = fab.innerHTML;
+      fab.innerHTML = '<span class="mdify-spinner"></span>';
+      fab.style.pointerEvents = 'none';
+
+      try {
+        const result = scrapePageToMarkdown();
+        if (!result.success || !result.markdown) {
+          throw new Error(result.error || 'Failed to scrape page');
+        }
+        const markdown = result.markdown;
+
+        // ALWAYS Copy to clipboard
+        await navigator.clipboard.writeText(markdown);
+
+        if (platform) {
+          await chrome.runtime.sendMessage({
+            action: 'injectToPlatform',
+            platform,
+            markdown,
+          });
+          fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        } else if (action === 'copy') {
+          fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        } else if (action === 'download') {
+          // Sanitize filename from page title
+          const pageTitle = document.title || 'document';
+          const filename = pageTitle
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+          // Create blob and download link
+          const blob = new Blob([markdown], { type: 'text/markdown' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${filename}.md`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        }
+      } catch (err) {
+        console.error('MDify Error:', err);
+        fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+      } finally {
+        setTimeout(() => {
+          fab.innerHTML = originalFabContent;
+          fab.style.pointerEvents = 'auto';
+        }, 2000);
+      }
+    });
+
+    // Save position on drag end
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        const pos = { left: root.style.left, top: root.style.top };
+        chrome.storage.local.set({ [`mdify_pos_${window.location.hostname}`]: pos });
+      }
+    });
+
+  } // End createOverlay
+} // End injectFloatingButton
 
 // Add CSS to page
 function injectStyles() {
@@ -419,6 +490,27 @@ function injectStyles() {
     @keyframes mdify-spin { to { transform: rotate(360deg); } }
     .mdify-animate-in { animation: mdify-fade-in 0.5s ease forwards; }
     @keyframes mdify-fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Minimized State */
+    #mdify-floating-root.minimized .mdify-fab {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      opacity: 0.6;
+      background: #8b5cf6;
+      box-shadow: none;
+    }
+    #mdify-floating-root.minimized .mdify-fab:hover {
+      opacity: 1;
+      transform: scale(1.1);
+    }
+    #mdify-floating-root.minimized .mdify-logo-icon {
+      width: 16px;
+      height: 16px;
+    }
+    #mdify-floating-root.minimized .mdify-menu {
+      display: none;
+    }
   `;
   document.head.appendChild(style);
 }

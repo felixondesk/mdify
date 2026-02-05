@@ -70,6 +70,12 @@ async function init(): Promise<void> {
           return;
         }
 
+        if (response.error) {
+          showError(response.error);
+          transitionToContent();
+          return;
+        }
+
         if (!response || !response.markdown) {
           showError('No content found on this page. This might be a protected page or empty document.');
           transitionToContent();
