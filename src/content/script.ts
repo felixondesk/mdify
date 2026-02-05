@@ -280,6 +280,14 @@ function injectFloatingButton() {
     fab.addEventListener('click', (e) => {
       e.stopPropagation();
 
+      // If minimized, restore
+      if (root.classList.contains('minimized')) {
+        root.classList.remove('minimized');
+        chrome.storage.local.set({ [`mdify_min_${window.location.hostname}`]: false });
+        // Don't toggle menu immediately on restore
+        return;
+      }
+
       // If it was a drag, don't toggle menu
       if (hasMoved) {
         hasMoved = false;
@@ -287,16 +295,6 @@ function injectFloatingButton() {
       }
 
       menu.classList.toggle('active');
-    });
-
-    // Restore from minimize
-    root.addEventListener('click', (e) => {
-      // If clicking the root while minimized (target might be root or fab)
-      if (root.classList.contains('minimized')) {
-        e.stopPropagation();
-        root.classList.remove('minimized');
-        chrome.storage.local.set({ [`mdify_min_${window.location.hostname}`]: false });
-      }
     });
 
 
