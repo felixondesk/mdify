@@ -15,6 +15,17 @@ interface InjectMessage {
   platform: 'claude' | 'chatgpt' | 'gemini' | 'grok' | 'perplexity';
 }
 
+type InjectionFailureReason =
+  | 'no_input_found'
+  | 'input_not_visible'
+  | 'input_not_editable'
+  | 'injection_exception';
+
+interface InjectionResult {
+  success: boolean;
+  reason?: InjectionFailureReason;
+}
+
 /**
  * Simulates React-compatible input events
  * This is the key to making injection work on React-based sites
@@ -185,9 +196,17 @@ function injectIntoGemini(element: HTMLTextAreaElement | HTMLDivElement, markdow
 /**
  * Find and inject content into the textarea
  */
-function injectContent(markdown: string, platform: string): boolean {
+function injectContent(markdown: string, platform: string): InjectionResult {
   const selector = getTextareaSelector(platform);
   const elements = document.querySelectorAll(selector);
+  if (elements.length === 0) {
+    console.error('MDify: No matching input elements found');
+    return { success: false, reason: 'no_input_found' };
+  }
+
+  let foundVisibleElement = false;
+  let foundVisibleEditableElement = false;
+  let hadInjectionError = false;
 
   for (const element of elements) {
     const textElement = element as HTMLTextAreaElement | HTMLDivElement;
@@ -197,19 +216,31 @@ function injectContent(markdown: string, platform: string): boolean {
     const isEditable = textElement.getAttribute('contenteditable') === 'true' ||
       textElement.tagName === 'TEXTAREA';
 
+    if (!isVisible) {
+      continue;
+    }
+
+    foundVisibleElement = true;
+
+    if (!isEditable) {
+      continue;
+    }
+
+    foundVisibleEditableElement = true;
+
     if (isVisible && isEditable) {
       try {
         // Platform-specific injection handlers
         if (platform === 'chatgpt' && textElement.tagName === 'DIV' && textElement.getAttribute('contenteditable') === 'true') {
           injectIntoChatGPT(textElement as HTMLDivElement, markdown);
           console.log(`MDify: Successfully injected ${markdown.length} characters to ChatGPT (contenteditable)`);
-          return true;
+          return { success: true };
         }
 
         if (platform === 'gemini') {
           injectIntoGemini(textElement, markdown);
           console.log(`MDify: Successfully injected ${markdown.length} characters to Gemini`);
-          return true;
+          return { success: true };
         }
 
         // Generic handlers for other platforms
@@ -217,21 +248,36 @@ function injectContent(markdown: string, platform: string): boolean {
           // For contenteditable divs (common in React apps)
           injectIntoContentEditable(textElement as HTMLDivElement, markdown);
           console.log(`MDify: Successfully injected ${markdown.length} characters to ${platform} (contenteditable)`);
-          return true;
+          return { success: true };
         } else {
           // For textarea/input elements
           dispatchReactInputEvents(textElement, markdown);
           console.log(`MDify: Successfully injected ${markdown.length} characters to ${platform} (textarea)`);
-          return true;
+          return { success: true };
         }
       } catch (error) {
+        hadInjectionError = true;
         console.error('MDify: Error during injection:', error);
       }
     }
   }
 
-  console.error('MDify: No suitable textarea found for injection');
-  return false;
+  if (!foundVisibleElement) {
+    console.error('MDify: Input elements found, but none are visible');
+    return { success: false, reason: 'input_not_visible' };
+  }
+
+  if (!foundVisibleEditableElement) {
+    console.error('MDify: Visible element found, but it is not editable');
+    return { success: false, reason: 'input_not_editable' };
+  }
+
+  if (hadInjectionError) {
+    return { success: false, reason: 'injection_exception' };
+  }
+
+  console.error('MDify: Injection failed for unknown reason');
+  return { success: false, reason: 'injection_exception' };
 }
 
 /**
@@ -239,8 +285,8 @@ function injectContent(markdown: string, platform: string): boolean {
  */
 chrome.runtime.onMessage.addListener((message: InjectMessage, _sender, sendResponse) => {
   if (message.action === 'injectContent') {
-    const success = injectContent(message.markdown, message.platform);
-    sendResponse({ success });
+    const result = injectContent(message.markdown, message.platform);
+    sendResponse(result);
   }
   return true;
 });

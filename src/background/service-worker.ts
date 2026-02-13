@@ -17,6 +17,26 @@ interface InjectionRequest {
 }
 
 type Platform = 'claude' | 'chatgpt' | 'gemini' | 'grok' | 'perplexity';
+type InjectionFailureReason =
+  | 'no_input_found'
+  | 'input_not_visible'
+  | 'input_not_editable'
+  | 'injection_exception'
+  | 'runtime_error'
+  | 'timeout'
+  | 'unknown';
+
+interface InjectionAttemptResult {
+  success: boolean;
+  reason?: InjectionFailureReason;
+}
+
+interface InjectionResponse {
+  success: boolean;
+  url?: string;
+  reason?: InjectionFailureReason;
+  attempts?: number;
+}
 
 // Platform URLs
 const PLATFORM_URLS: Record<Platform, string> = {
@@ -27,54 +47,111 @@ const PLATFORM_URLS: Record<Platform, string> = {
   perplexity: 'https://www.perplexity.ai/',
 };
 
+const REACT_MOUNT_DELAY_MS = 1500;
+const INJECTION_RETRY_DELAY_MS = 1400;
+const MAX_INJECTION_ATTEMPTS = 5;
+const INJECTION_TIMEOUT_MS = 15000;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function sendInjectionMessage(tabId: number, request: InjectionRequest): Promise<InjectionAttemptResult> {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(
+      tabId,
+      {
+        action: 'injectContent',
+        markdown: request.markdown,
+        platform: request.platform,
+      },
+      (response?: InjectionAttemptResult) => {
+        if (chrome.runtime.lastError) {
+          console.warn('MDify: Injection message failed:', chrome.runtime.lastError.message);
+          resolve({ success: false, reason: 'runtime_error' });
+          return;
+        }
+
+        if (response?.success) {
+          resolve({ success: true });
+          return;
+        }
+
+        resolve({ success: false, reason: response?.reason || 'unknown' });
+      }
+    );
+  });
+}
+
 /**
  * Opens a new tab and waits for it to fully load before injecting content
  */
-async function openAndInject(request: InjectionRequest): Promise<boolean> {
+async function openAndInject(
+  request: InjectionRequest
+): Promise<{ success: boolean; reason?: InjectionFailureReason; attempts: number }> {
   return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (result: { success: boolean; reason?: InjectionFailureReason; attempts: number }): void => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
     // Open the target URL in a new tab
     chrome.tabs.create({ url: request.targetUrl, active: true }, (tab) => {
       if (!tab.id) {
-        resolve(false);
+        finish({ success: false, reason: 'runtime_error', attempts: 0 });
         return;
       }
 
+      const tabId = tab.id;
+
       // Set up a listener for when the tab completes loading
-      const listener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
-        if (tabId === tab.id && changeInfo.status === 'complete') {
+      const listener = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+        if (updatedTabId === tabId && changeInfo.status === 'complete') {
           // Remove the listener
           chrome.tabs.onUpdated.removeListener(listener);
+          clearTimeout(timeoutId);
 
-          // Give React a moment to initialize
-          setTimeout(() => {
-            // Send injection request to the content script
-            chrome.tabs.sendMessage(
-              tab.id!,
-              {
-                action: 'injectContent',
-                markdown: request.markdown,
-                platform: request.platform,
-              },
-              (response) => {
-                if (chrome.runtime.lastError) {
-                  console.error('MDify: Injection failed:', chrome.runtime.lastError);
-                  resolve(false);
-                } else {
-                  resolve(response?.success || false);
-                }
+          void (async () => {
+            await wait(REACT_MOUNT_DELAY_MS);
+
+            let lastReason: InjectionFailureReason = 'unknown';
+
+            for (let attempt = 1; attempt <= MAX_INJECTION_ATTEMPTS; attempt += 1) {
+              const attemptResult = await sendInjectionMessage(tabId, request);
+
+              if (attemptResult.success) {
+                finish({ success: true, attempts: attempt });
+                return;
               }
-            );
-          }, 1500); // Wait for React to mount
+
+              lastReason = attemptResult.reason || 'unknown';
+
+              if (attempt < MAX_INJECTION_ATTEMPTS) {
+                await wait(INJECTION_RETRY_DELAY_MS);
+              }
+            }
+
+            finish({
+              success: false,
+              reason: lastReason,
+              attempts: MAX_INJECTION_ATTEMPTS,
+            });
+          })();
         }
       };
 
       chrome.tabs.onUpdated.addListener(listener);
 
-      // Fallback: timeout after 10 seconds
-      setTimeout(() => {
+      // Fallback timeout in case the target app never reaches a usable state
+      const timeoutId = setTimeout(() => {
         chrome.tabs.onUpdated.removeListener(listener);
-        resolve(false);
-      }, 10000);
+        finish({ success: false, reason: 'timeout', attempts: 0 });
+      }, INJECTION_TIMEOUT_MS);
     });
   });
 }
@@ -100,14 +177,23 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 /**
  * Handle injection workflow
  */
-async function handleInjection(platform: Platform, markdown: string): Promise<{ success: boolean; url?: string }> {
+async function handleInjection(platform: Platform, markdown: string): Promise<InjectionResponse> {
+  if (!(platform in PLATFORM_URLS)) {
+    return { success: false, reason: 'unknown', attempts: 0 };
+  }
+
   const targetUrl = PLATFORM_URLS[platform];
 
-  const success = await openAndInject({
+  const result = await openAndInject({
     targetUrl,
     markdown,
     platform,
   });
 
-  return { success, url: targetUrl };
+  return {
+    success: result.success,
+    url: targetUrl,
+    reason: result.reason,
+    attempts: result.attempts,
+  };
 }

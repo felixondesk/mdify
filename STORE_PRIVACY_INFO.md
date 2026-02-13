@@ -1,36 +1,25 @@
-# Chrome Web Store - Privacy Tab Details
+# Chrome Web Store Privacy Justification
 
-Here is the information you need to fill out the Privacy tab in the Chrome Web Store Developer Dashboard.
+## Single Purpose Description
+**Question:** Please provide a Single Purpose Description of your extension.
 
-## Single Purpose
-**Description:** Content Conversion Tool
-**Explanation:** MDify converts the current web page into Markdown format to facilitate easy input into AI tools.
+**Answer:**
+Converts web pages into clean Markdown format for use with AI chatbots and LLMs.
 
-## Permission Justification
 
-### Active Tab (`activeTab`)
-**Justification:**
-MDify requires `activeTab` permission to access the DOM of the currently viewed page *only when the user clicks the extension icon*. This is necessary to extract the page content (HTML) and convert it into Markdown format for the user.
+## Storage Permission
+**Question:** Please justify why your extension requires the "storage" permission.
 
-### Clipboard Write (`clipboardWrite`)
-**Justification:**
-MDify provides a "Copy" button in its popup interface. The `clipboardWrite` permission is required to programmatically copy the generated Markdown text to the user's clipboard for paste functionality.
+**Answer:**
+The extension uses the `storage` permission to save user preferences locally. Specifically, it stores:
+1.  **UI State:** The user's preference to minimize the floating overlay button on specific websites.
+2.  **Exclusions:** A user-defined list of domain names where the overlay should not appear (controlled via the "Always close for this website" feature).
+3.  **Temporary State:** Timestamps to support the "Close for 10 minutes" feature.
 
-### Host Permissions (`host_permissions` / `<all_urls>`)
-*(Note: You likely need to justify the content script access or specific AI site access)*
+All data is stored locally within the user's browser (using `chrome.storage.local` and `chrome.storage.sync`) and is never transmitted to external servers.
 
-**Justification:**
-MDify extracts article content from the web pages the user visits to convert them to Markdown.
-*   **For Content Extraction:** The extension acts on the user's current page to provide the core conversion functionality.
-*   **For AI Platform Injection:** MDify requires access to specific AI platforms (Claude, ChatGPT, Gemini, etc.) to programmatically insert the converted Markdown into the chat input field upon the user's explicit request.
+## Host Permissions (`<all_urls>`)
+**Question:** Please justify why your extension requires access to all hosts.
 
-## Data Usage
-
-**Does your extension collect any user data?**
-No.
-
-**Certification:**
-*   [x] I certify that the information I have provided is correct.
-
-**Privacy Policy URL:**
-*(You will need to host the `PRIVACY_POLICY.md` file somewhere public, e.g., GitHub Pages or a website, and paste the link here. If you haven't hosted it yet, you can point to your repository's raw file link if it's public.)*
+**Answer:**
+The core functionality of MDify is to convert *any* webpage the user visits into Markdown format. To achieve this, the content script must be able to inject into the active tab to parse the DOM and extract the article content (using `@mozilla/readability`). Without access to `<all_urls>`, the extension cannot perform its primary function of converting arbitrary web pages.

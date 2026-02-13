@@ -15,6 +15,9 @@ export default defineConfig({
   ],
   build: {
     rollupOptions: {
+      input: {
+        //    sandbox: 'src/sandbox.html', // Reverted
+      },
       output: {
         entryFileNames: (chunkInfo) => {
           const facadeModuleId = chunkInfo.facadeModuleId || '';
@@ -25,7 +28,7 @@ export default defineConfig({
           if (facadeModuleId.includes('injector')) return 'injector.js';
           return '[name].js';
         },
-        chunkFileNames: '[name].js',
+        chunkFileNames: 'chunks/[name]-[hash].js',
         assetFileNames: '[name].[ext]',
       },
     },

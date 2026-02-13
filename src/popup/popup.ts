@@ -6,6 +6,21 @@ import { countTokens, getTokenStatus, formatTokenCount } from '../utils/token-co
 
 // Platform and IDE types
 type Platform = 'claude' | 'chatgpt' | 'gemini' | 'grok' | 'perplexity';
+type InjectionFailureReason =
+  | 'no_input_found'
+  | 'input_not_visible'
+  | 'input_not_editable'
+  | 'injection_exception'
+  | 'runtime_error'
+  | 'timeout'
+  | 'unknown';
+
+interface InjectToPlatformResponse {
+  success: boolean;
+  url?: string;
+  reason?: InjectionFailureReason;
+  attempts?: number;
+}
 
 // DOM Elements
 const loadingEl = document.getElementById('loading')!;
@@ -190,6 +205,48 @@ function showWarning(message: string): void {
   `;
 }
 
+function formatPlatformName(platform: Platform): string {
+  const names: Record<Platform, string> = {
+    claude: 'Claude',
+    chatgpt: 'ChatGPT',
+    gemini: 'Gemini',
+    grok: 'Grok',
+    perplexity: 'Perplexity',
+  };
+
+  return names[platform];
+}
+
+function getFailureReasonText(reason?: InjectionFailureReason): string {
+  switch (reason) {
+    case 'no_input_found':
+      return 'No chat input was detected.';
+    case 'input_not_visible':
+      return 'The chat input is not visible yet.';
+    case 'input_not_editable':
+      return 'The detected input is not editable.';
+    case 'injection_exception':
+      return 'The target page rejected the insert attempt.';
+    case 'runtime_error':
+      return 'The target tab was not ready for messaging.';
+    case 'timeout':
+      return 'The target page timed out while loading.';
+    default:
+      return 'Auto-insert failed.';
+  }
+}
+
+async function copyFallbackMarkdown(): Promise<boolean> {
+  if (!currentMarkdown) return false;
+
+  try {
+    await navigator.clipboard.writeText(currentMarkdown);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Generic handler for platform injection
  */
@@ -205,17 +262,27 @@ async function injectToPlatform(platform: Platform, button: HTMLButtonElement): 
       action: 'injectToPlatform',
       platform,
       markdown: currentMarkdown,
-    });
+    }) as InjectToPlatformResponse;
 
     if (response?.success) {
       window.close();
     } else {
-      showError(`Injection failed for ${platform}.`);
+      const copied = await copyFallbackMarkdown();
+      const reasonText = getFailureReasonText(response?.reason);
+      const attemptText = response?.attempts ? ` Tried ${response.attempts} times.` : '';
+      const fallbackText = copied
+        ? ' Markdown copied to clipboard. Paste with Ctrl/Cmd+V.'
+        : ' Clipboard copy fallback failed.';
+      showError(`${formatPlatformName(platform)} injection failed. ${reasonText}${attemptText}${fallbackText}`);
       button.disabled = false;
       button.innerHTML = originalContent;
     }
   } catch (error) {
-    showError('Connection error: ' + (error as Error).message);
+    const copied = await copyFallbackMarkdown();
+    const fallbackText = copied
+      ? 'Markdown copied to clipboard. Paste with Ctrl/Cmd+V.'
+      : 'Clipboard copy fallback failed.';
+    showError(`Connection error: ${(error as Error).message}. ${fallbackText}`);
     button.disabled = false;
     button.innerHTML = originalContent;
   }
